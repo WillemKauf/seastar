@@ -4116,6 +4116,7 @@ void smp::create_thread(std::function<void ()> thread_loop) {
     }
 }
 
+static thread_local bool locked = false;
 // Installs handler for Signal which ensures that Func is invoked only once
 // in the whole program and that after it is invoked the default handler is restored.
 template<int Signal, void(*Func)()>
@@ -4125,7 +4126,13 @@ void install_oneshot_signal_handler() {
 
     struct sigaction sa;
     sa.sa_sigaction = [](int sig, siginfo_t *info, void *p) {
+        if (locked) {
+            print_safe("INVALID REENTRIANT SIGNAL: bailing instead of deadlocking...");
+            return;
+        }
         std::lock_guard<util::spinlock> g(lock);
+        locked = true;
+        auto cleanup = defer([]() noexcept { locked = false; });
         if (!handled) {
             handled = true;
             Func();
