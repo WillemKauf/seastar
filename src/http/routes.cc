@@ -44,17 +44,6 @@ void verify_param(const http::request& req, const sstring& param) {
     }
 }
 routes::routes() : _general_handler([this](std::exception_ptr eptr) mutable {
-    try {
-        std::rethrow_exception(eptr);
-    } catch (const redirect_exception& _e) {
-        auto rep = std::make_unique<http::reply>();
-        rep->add_header("Location", _e.url).set_status(_e.status()).done(
-                "json");
-        return rep;
-    } catch (...) {
-        // Fall through to return exception reply
-    }
-
     return exception_reply(eptr);
 }) {}
 
@@ -88,6 +77,8 @@ std::unique_ptr<http::reply> routes::exception_reply(std::exception_ptr eptr) {
             }
         }
         std::rethrow_exception(eptr);
+    } catch (const redirect_exception& _e) {
+      *rep = _e.to_reply();
     } catch (const base_exception& e) {
         if (e.content_type().size()) {
             rep->set_status(e.status(), e.str());
@@ -115,9 +106,8 @@ future<std::unique_ptr<http::reply> > routes::handle(const sstring& path, std::u
             auto r =  handler->handle(path, std::move(req), std::move(rep));
             return r.handle_exception(_general_handler);
         } catch (const redirect_exception& _e) {
-            rep.reset(new http::reply());
-            rep->add_header("Location", _e.url).set_status(_e.status()).done(
-                    "json");
+	    *rep = _e.to_reply();
+	    rep->done("json");
         } catch (...) {
             rep = exception_reply(std::current_exception());
         }
